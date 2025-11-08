@@ -49,12 +49,14 @@ document.fonts.ready.then(() => {
     typewriter.pauseFor(2000)
         .typeString('Null the Noise.')
         .pauseFor(1500)
-        .typeString('<br>Simplicity Scales.')
+        .typeString('<br>Clean the Code.')
+        .pauseFor(1500)
+        .typeString('<br>Return Real.')
         .pauseFor(1000)
         .typeString('<br>')
         .typeString('<br>')
         .pauseFor(2000)
-        .typeString('Return Real.')
+        .typeString('Simplicity Scales.')
         .pauseFor(3000)
         .callFunction(() => {
             //Start Matrix Rain

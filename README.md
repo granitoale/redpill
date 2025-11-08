@@ -2,9 +2,13 @@
 
 **Null the Noise.**
 
-**Simplicity Scales.**
+**Clean the Code.**
 
 **Return Real.**
+
+
+
+**Simplicity Scales.**
 
 ---
 
