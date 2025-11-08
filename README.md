@@ -1,6 +1,12 @@
 # RedPill
 
-**Null the Noise. Clean the Code. Simplicity Scales.**
+**Null the Noise.**
+
+**Simplicity Scales.**
+
+**Return Real.**
+
+---
 
 Personal company website of **Alessandro Granito**, Senior Full-Stack Web Developer.
 
