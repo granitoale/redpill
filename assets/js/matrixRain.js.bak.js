@@ -23,20 +23,6 @@
  * 
  * Initializes and starts the Matrix rain animation.
  */
-
-/**
- * Helper to find out if specific extensions are available,
- * to descriminate between desktop and mobile
- */
-function isHalfFloatSupported(gl) {
-    // Try to get all the required extensions
-    const halfFloat = gl.getExtension('OES_texture_half_float');
-    const halfFloatLinear = gl.getExtension('OES_texture_half_float_linear');
-    const colorBufferHalfFloat = gl.getExtension('EXT_color_buffer_half_float');
-    const colorBufferFloat = gl.getExtension('WEBGL_color_buffer_float');
-    return halfFloat && halfFloatLinear && colorBufferHalfFloat && colorBufferFloat;
-}
-
 const matrixRain = async () => {
 
     const fallSpeed = 0.1;
@@ -104,8 +90,6 @@ const matrixRain = async () => {
         #define SQRT_2 1.4142135623730951
         #define SQRT_5 2.23606797749979
 
-        uniform bool alwaysChangeSymbol;
-
         uniform sampler2D previousComputeState;
 
         uniform float numColumns, numRows;
@@ -140,7 +124,7 @@ const matrixRain = async () => {
             return vec2(brightness, cursor);
         }
 
-        /*vec2 computeSymbol(float simTime, bool isFirstFrame, vec2 glyphPos, vec2 screenPos, vec4 previous) {
+        vec2 computeSymbol(float simTime, bool isFirstFrame, vec2 glyphPos, vec2 screenPos, vec4 previous) {
 
             float previousSymbol = previous.r;
             float previousAge = previous.g;
@@ -151,7 +135,6 @@ const matrixRain = async () => {
             }
             float age = previousAge;
             float symbol = previousSymbol;
-
             if (mod(tick, 1.0) == 0.) {
                 age += cycleSpeed;
                 if (age >= 1.) {
@@ -161,38 +144,7 @@ const matrixRain = async () => {
             }
 
             return vec2(symbol, age);
-        }*/
-
-        vec2 computeSymbol(float simTime, bool isFirstFrame, vec2 glyphPos, vec2 screenPos, vec4 previous) {
-
-            // previous.r holds the encoded symbol (0..1) when using UNSIGNED_BYTE fallback
-            float previousAge = previous.g;
-            // decode previous symbol to integer in range [0,255]
-            float previousSymbolInt = floor(previous.r * 255.0 + 0.5);
-
-            if (isFirstFrame) {
-                previousAge = randomFloat(screenPos + 0.5);
-                // initial random integer symbol
-                previousSymbolInt = floor(glyphSequenceLength * randomFloat(screenPos));
-            }
-
-            float age = previousAge;
-            float symbolInt = previousSymbolInt; // integer stored as float
-
-            if (mod(tick, 1.0) == 0.0) {
-                age += cycleSpeed;
-                if (age >= 1.0) {
-                    symbolInt = floor(glyphSequenceLength * randomFloat(screenPos + simTime));
-                    age = fract(age);
-                }
-            }
-
-            // encode integer symbol into 0..1 with 8-bit precision so UNSIGNED_BYTE stores it exactly
-            float encodedSymbol = floor(symbolInt + 0.5) / 255.0;
-
-            return vec2(encodedSymbol, age);
         }
-
 
         void main() {
             vec2 glyphPos = gl_FragCoord.xy;
@@ -292,10 +244,7 @@ const matrixRain = async () => {
         void main() {
             vec4 data = texture2D(computeState, vUV);
             vec3 brightness = getBrightness(data.rg, vUV);
-            //vec2 symbol = getSymbol(vUV, data.b);
-            // decode the 8-bit packed symbol back to integer index
-            float symbolIndex = floor(data.b * 255.0 + 0.5);
-            vec2 symbol = getSymbol(vUV, symbolIndex);
+            vec2 symbol = getSymbol(vUV, data.b);
             gl_FragColor = vec4(brightness.rg * symbol.r, brightness.b * symbol.g, 0.);
         }
     `;
@@ -382,6 +331,21 @@ const matrixRain = async () => {
         }
     `;
 
+    //const init = (gl) => Object.assign(extendedContext, ...extensionNames.map((name) => Object.getPrototypeOf(gl.getExtension(name))));
+    const init = (gl) => {
+        return Object.assign(
+            extendedContext,
+            ...extensionNames.map((name) => {
+                const ext = gl.getExtension(name);
+                if (!ext) {
+                    console.warn(`WebGL extension not supported: ${name}`);
+                    return null;
+                }
+                return Object.getPrototypeOf(ext);
+            }).filter(Boolean) // Only keep valid prototypes
+        );
+    };
+
     const load = (gl, msdfImage, palette) => {
         const buildShader = (source, isFragment) => {
             const shader = gl.createShader(isFragment ? gl.FRAGMENT_SHADER : gl.VERTEX_SHADER);
@@ -417,7 +381,6 @@ const matrixRain = async () => {
         uniforms.rain_compute_program_time = gl.getUniformLocation(programs.rain_compute, "time");
         uniforms.rain_compute_program_previousComputeState = gl.getUniformLocation(programs.rain_compute, "previousComputeState");
         uniforms.rain_compute_program_tick = gl.getUniformLocation(programs.rain_compute, "tick");
-        uniforms.rain_compute_program_alwaysChangeSymbol = gl.getUniformLocation(programs.rain_compute, "alwaysChangeSymbol");
         gl.useProgram(programs.rain_compute);
         gl.uniform1f(gl.getUniformLocation(programs.rain_compute, "numColumns"), 80);
         gl.uniform1f(gl.getUniformLocation(programs.rain_compute, "glyphSequenceLength"), 57);
@@ -425,7 +388,6 @@ const matrixRain = async () => {
         gl.uniform1f(gl.getUniformLocation(programs.rain_compute, "fallSpeed"), fallSpeed);
         gl.uniform1f(gl.getUniformLocation(programs.rain_compute, "raindropLength"), 0.75);
         gl.uniform1f(gl.getUniformLocation(programs.rain_compute, "cycleSpeed"), 0.03);
-        gl.uniform1i(uniforms.rain_compute_program_alwaysChangeSymbol, isMobileFallback ? 1 : 0);
 
         programs.rain = buildProgram(rain_vert_shader, rain_frag_shader);
         attributes.rain_program_aPosition = gl.getAttribLocation(programs.rain, "aPosition");
@@ -499,11 +461,7 @@ const matrixRain = async () => {
             const texture = gl.createTexture();
             gl.activeTexture(gl.TEXTURE0);
             gl.bindTexture(gl.TEXTURE_2D, texture);
-            
-            //gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 80, 80, 0, gl.RGBA, extendedContext.HALF_FLOAT_OES, null);
-            const simTextureType = isMobileFallback ? gl.UNSIGNED_BYTE : extendedContext.HALF_FLOAT_OES;
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 80, 80, 0, gl.RGBA, simTextureType, null);
-            
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 80, 80, 0, gl.RGBA, extendedContext.HALF_FLOAT_OES, null);
             setTexParams(texture, false);
 
             const framebuffer = gl.createFramebuffer();
@@ -692,28 +650,6 @@ const matrixRain = async () => {
     resizeViewport();
 
     const gl = canvas.getContext("webgl");
-
-    //const init = (gl) => Object.assign(extendedContext, ...extensionNames.map((name) => Object.getPrototypeOf(gl.getExtension(name))));
-    const init = (gl) => {
-        return Object.assign(
-            extendedContext,
-            ...extensionNames.map((name) => {
-                const ext = gl.getExtension(name);
-                if (!ext) {
-                    console.warn(`WebGL extension not supported: ${name}`);
-                    return null;
-                }
-                return Object.getPrototypeOf(ext);
-            }).filter(Boolean) // Only keep valid prototypes
-        );
-    };
-
-    // Check if we're on mobile
-    const isMobileFallback = !isHalfFloatSupported(gl);
-    if (isMobileFallback) {
-        console.warn("Matrix Rain: High precision rendering is not supported on this device. Using fallback, lower fidelity simulation.");
-        // Optional: tweak parameters, e.g. use smaller column count, disable bloom, etc
-    }
 
     const image = new Image();
     image.crossOrigin = "anonymous";
